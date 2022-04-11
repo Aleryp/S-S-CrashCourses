@@ -1,0 +1,53 @@
+version: '3.7'
+services:
+  hits:
+    build: .
+    image: hits:h4
+    restart: always
+    labels:
+      - "traefik.http.services.hits.loadbalancer.server.port=5000"
+      - "traefik.enable=true"
+      - "traefik.http.routers.hits.rule=Host(`localhost`)"
+      - "traefik.http.routers.hits.entrypoints=web"
+    deploy:
+      mode: replicated
+      replicas: 3
+    volumes:
+      - logs:/hits/logs
+    depends_on:
+        - redis
+    networks:
+      - public
+      - secret
+  redis:
+    image: redis:alpine
+    volumes:
+      - redis-data:/data
+    networks:
+      - secret
+  loadbalancer:
+    image: traefik
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - 8080:8080
+      - 9999:80
+    networks:
+      - public
+    depends_on:
+      - hits
+volumes:
+  logs:
+    external: true
+  redis-data:
+    driver: local
+networks:
+  secret:
+    driver: bridge
+  public:
+    driver: bridge
