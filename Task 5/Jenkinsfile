@@ -1,25 +1,43 @@
 pipeline {
-      agent any
+    agent any
 
-      stages {
-         stage('Build') {
+    environment {
+        DOCKER_ID = credentials('DOCKER_ID')
+        DOCKER_PASSWORD = credentials('DOCKER_PASSWORD')
+    }
+
+    stages {
+        stage('Init') {
             steps {
-               echo 'building proccess...'
-            }
-      }
-      stage('Test') {
-            steps {
-               echo 'testing proccess...'
-            }
-      }
-      stage('Deploy') {
-            steps {
-               echo 'deploying proccess...'
+                echo 'Initializing..'
+                echo "Running ${env.BUILD_ID} on ${env.JENKINS_URL}"
+                echo "Current branch: ${env.BRANCH_NAME}"
+                sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_ID --password-stdin'
             }
         }
-      stage('Post-Deploy') {
+        stage('Build') {
             steps {
-               echo 'post-deploying proccess...'
+                echo 'Building image..'
+                sh 'docker build -t $DOCKER_ID/pythondocker:mytag .'
+            }
+        }
+        stage('Test') {
+            steps {
+                echo 'Testing..'
+                sh 'docker run --rm -e CI=true $DOCKER_ID/pythondocker pytest'
+            }
+        }
+        stage('Publish') {
+            steps {
+                echo 'Publishing image to DockerHub..'
+                sh 'docker push $DOCKER_ID/pythondocker:mytag'
+            }
+        }
+        stage('Cleanup') {
+            steps {
+                echo 'Removing unused docker containers and images..'
+                sh 'docker ps -aq | xargs --no-run-if-empty docker rm'
+                sh 'docker images -q | xargs --no-run-if-empty docker rmi'
             }
         }
     }

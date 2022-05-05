@@ -1,31 +1,38 @@
-stages:          # List of stages for jobs, and their order of executionn
-  - build
-  - test
-  - deploy
-
-build-job:       # This job runs in the build stage, which runs first.
+image: docker:18.09.7
+services:
+- docker:18.09.7-dind
+stages:
+- build
+- deploy
+before_script:
+  - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
+build:
+  only:
+    - pushes
   stage: build
   script:
-    - echo "Compiling the code..."
-    - echo "Compile complete."
-
-unit-test-job:   # This job runs in the test stage.
-  stage: test    # It only starts when the job in the build stage completes successfully.
+    - docker build -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA -t $CI_REGISTRY_IMAGE:latest .
+    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA
+    - docker push $CI_REGISTRY_IMAGE:latest
+deploy:
+  only:
+    - pushes
+  stage: deploy
+  before_script:
+    - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
+    - cp $DOCKER_CACERT ~/.docker/ca.pem && cp $DOCKER_CERT ~/.docker/cert.pem && cp $DOCKER_KEY ~/.docker/key.pem
+    - export DOCKER_HOST=tcp://docker:2375 DOCKER_TLS_VERIFY=1
+    - docker stop $CI_PROJECT_NAME || true
+    - docker rm $CI_PROJECT_NAME || true
+    - docker rmi $CI_REGISTRY_IMAGE:latest
+    - docker pull $CI_REGISTRY_IMAGE:latest
   script:
-    - echo "Running unit tests... This will take about 60 seconds."
-    - sleep 60
-    - echo "Code coverage is 90%"
-    - echo 'Test finished'
-
-lint-test-job:   # This job also runs in the test stage.
-  stage: test    # It can run at the same time as unit-test-job (in parallel).
-  script:
-    - echo "Linting code... This will take about 10 seconds."
-    - sleep 10
-    - echo "No lint issues found."
-
-deploy-job:      # This job runs in the deploy stage.
-  stage: deploy  # It only runs when *both* jobs in the test stage complete successfully.
-  script:
-    - echo "Deploying application..."
-    - echo "Application successfully deployed."
+    - docker run --name $CI_PROJECT_NAME -d
+      -p 127.0.0.1:5000:5000 --restart unless-stopped
+      -e DATABASE_URL="$DATABASE_URL"
+      -e SECRET_KEY=$SECRET_KEY
+      -e GOOGLE_OAUTH_CLIENT_ID=$GOOGLE_OAUTH_CLIENT_ID
+      -e GOOGLE_OAUTH_CLIENT_SECRET=$GOOGLE_OAUTH_CLIENT_SECRET
+      -e SENTRY_ENV=$SENTRY_ENV
+      -e SENTRY_DSN="$SENTRY_DSN"
+      $CI_REGISTRY_IMAGE:latest
